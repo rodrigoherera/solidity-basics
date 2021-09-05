@@ -2,6 +2,16 @@
 
 pragma solidity >=0.5.0 <0.9.0;
 
+
+contract AuctionCreator {
+    Auction[] public auctions;
+    
+    function createAuction() public {
+        Auction newAuction = new Auction(msg.sender);
+        auctions.push(newAuction);
+    }
+}
+
 contract Auction {
     address payable public owner;
     uint public startBlock;
@@ -18,13 +28,13 @@ contract Auction {
     
     uint bidIncrement;
     
-    constructor() {
-        owner = payable(msg.sender);
+    constructor(address eoa) {
+        owner = payable(eoa);
         auctionState = State.Running;
         startBlock = block.number;
         endBlock = startBlock + 40320;
         ipfsHash = "";
-        bidIncrement = 100;
+        bidIncrement = 1000000000000000000;
     }
     
     modifier notOwner() {
@@ -40,6 +50,15 @@ contract Auction {
     modifier beforeEnd() {
         require(block.number <= endBlock);
         _;
+    }
+    
+    modifier onlyOwner() {
+        require(msg.sender == owner);
+        _;
+    }
+    
+    function cancelAuction() public onlyOwner {
+        auctionState = State.Canceled;    
     }
     
     function min(uint a, uint b) pure internal returns(uint) {
@@ -65,5 +84,35 @@ contract Auction {
             highestBindingBid = min(currentBid, bids[highestBidder] + bidIncrement);
             highestBidder = payable(msg.sender);
         }
+    }
+    
+    function finalizeAuction() public {
+        require(auctionState == State.Canceled || block.number > endBlock);
+        require(msg.sender == owner || bids[msg.sender] > 0);
+        
+        address payable recipient;
+        uint value;
+        
+        if (auctionState == State.Canceled) {
+            recipient = payable(msg.sender);
+            value = bids[msg.sender];
+        } else { // auction ends.
+            if (msg.sender == owner) {
+                recipient = owner;
+                value = highestBindingBid;
+            } else {
+                if (msg.sender == highestBidder) {
+                    recipient = highestBidder;
+                    value = bids[highestBidder] - highestBindingBid;
+                } else {
+                    recipient = payable(msg.sender);
+                    value = bids[msg.sender];
+                }
+            }
+        }
+        
+        bids[recipient] = 0;
+        
+        recipient.transfer(value);
     }
 }
